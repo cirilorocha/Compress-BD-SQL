@@ -26,6 +26,8 @@ Usando esses critérios consegui um excelente equilíbrio entre quanto vai custa
 
 Nesse cenário e com o banco de dados Protheus consegui um **ganho de compressão na faixa de  60%**, sendo que apenas comprimindo tudo com **ROW*** ficaria em torno de **22%** e se utilizasse **PAGE** fica em **66%**. Entendo que abrindo mão de um pequeno percentual de compressão 6% existe um ganho razoável de performance nesses objetos que não se beneficiam da compressão.
 
+Este script pode ser executar também após a compressão do banco para que seja reavaliada a compressão das tabelas após algum tempo de uso, e mesmo para verificar novas tabelas que tenham sido criadas depois da compressão inicial. Ele refaz as estimativas sem compressão, e com cada tipo de compressão. Depois que os dados estão atualizados basta executar o [script](https://github.com/cirilorocha/Compress-BD-SQL/blob/main/Compactar%20Banco%20de%20Dados%20(CX).sql) de compressão novamente, este irá apenas alterar o padrão de compressão das tabelas necesárias, as demais serão ignoradas.
+
 
 
 ## Análise dos Dados de Compressão
@@ -49,12 +51,14 @@ Ele executa diversos passos para efetuar a compressão e garantir a sua integrid
 * Desfragmentação dos dados
 
 * Verificação de integridade
-
-
+  
+  
 
 Ainda tenho uma pendência aqui porque essa desfragmentação não está sendo efetiva, infelizmente fica essa pendência aqui. Apesar de usar o mesmo algoritmo que uso de forma segregada e funciona, dentro deste script o mesmo não surte efeito, terminando o processo sem um resultado esperado, as tabelas ainda continuam com um alto índice de fragmentação, sendo necessário executar novamente uma etapa de desfragmentação. **Por este motivo o parâmetro que controla esta operação está 100% para ignorar esse processamento.**
 
 Um recurso interessante que adicionei foi o acompanhamento de todo o processo através das mensagens durante todo o processo, mostrando cada etapa com o percentual da etapa atual.
+
+Este script pode ser executado novamente após um tempo de uso do banco de dados após uma nova etapa de análise. Desta forma ele processa apenas as tabelas que foram elencadas como necessária alteração no tipo de compressão.
 
 ## Descompressão do Banco
 
@@ -73,7 +77,13 @@ De forma semelhante ao algoritmo de compressão são efetuadas diversas operaç�
 * Verificação de Integridade
 
 * Redução/Shrink do banco de dados
-
-
+  
+  
 
 De forma identica ao processo de compressão são exibidas mensagens informando todo o progresso do script.
+
+
+
+## Configuração Adicional no DbAccess
+
+Após esse processo de compressão é altamente recomendado deixar o DbAccess configurado para fazer a compressão de novos dados e tabelas de forma automática. Para tal basta incluir a configuração **compression=2** no arquivo INI de configuração dele. É recomendável fazer uma reavaliação da compressão das novas tabelas criadas usando o primeiro [script](https://github.com/cirilorocha/Compress-BD-SQL/blob/main/Verificar%20Ganhos%20Compress%C3%A3o%20Banco.sql) periodicamente de forma a sempre manter as tabelas criadas o melhor método de compressão.
