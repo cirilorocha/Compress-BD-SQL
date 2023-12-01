@@ -1,5 +1,23 @@
 # Compress-BD-SQL
 
+
+
+A compressão de bancos de dados é uma técnica que traz diversos benefícios, como :
+
+* Menor utilização do espaço em disco
+* Menor espaço utilizado pelo backup
+* Menor tempo de gravação do backup (devido ao consequente menor uso de disco em leituras e gravações)
+* Menos acessos ao disco são necessários por conta do volume menor e pelo ganho com mais dados em cache/memória
+* Menor consumo de memória RAM, ou na mesma memória permite que mais dados fiquem em cache otimizando o tempo de resposta. Os dados na memória RAM / Cache também ficam compactados e consequentemente reduz e otimiza seu uso
+* Melhoria no tempo de resposta com mais dados disponíveis na memória e menos acessos ao disco
+* Menor tempo de restauração de backup (menos tráfego de IO é necessário durante o processo)
+
+Em contrapartida existem um maior custo de CPU, principalmente nas operações de atualização ou inclusão de dados, e um pouco também nas leituras para efetuar a descompressão. Com processadores de múltiplos núcleos e cada vez mais velozes esse impacto é bastante minimizado pelo paralelismo e principalmente com os substanciais ganhos no uso de disco e memória.
+
+
+
+# Scripts
+
 Scripts para análise do ganho com compressão de dados do MS Sql e compressão do banco de dados. São basicamente 3 scripts: 
 
 * [Verificar Ganhos de Compressão](https://github.com/cirilorocha/Compress-BD-SQL/blob/main/Verificar%20Ganhos%20Compress%C3%A3o%20Banco.sql)
@@ -16,9 +34,12 @@ Scripts para análise do ganho com compressão de dados do MS Sql e compressão 
 
 Este [script](https://github.com/cirilorocha/Compress-BD-SQL/blob/main/Verificar%20Ganhos%20Compress%C3%A3o%20Banco.sql) tem a finalidade de simular a compressão do banco de dados usando a procedure padrão do SQL sp_estimate_data_compression_savings. Baseado no percentual de compressão dos dados (tabela e indices são verificados invididualemente) é usado o seguinte critério para indicar qual tipo de compressão será aplicada:
 
+* Tabela pequena (menor que 100kb): **NÃO comprime**
 * Compressão Geral (ROW ou PAGE) menor que 25%: **NÃO comprime**
 * Compressão ROW maior que 25%, Compressão PAGE maior 25% que ROW e Compressão Page maior que 40%: **Compresão Page**
 * Demais casos: **Compressão ROW**
+
+É feita também uma reavaliação das tabelas pequenas, pode ocorrer do sistema criar novas tabelas vazias já com compressão e não compensa mantê-las dessa forma, apenas quando houver um volume maior de dados (pelo menos 100kb no algoritmo), após esse limite é verificada a taxa de compressão da tabela. Assim mantenho as tabelas muito pequenas ou vazias sem compressão, porque geram muitos dados inconsistentes de compressão com uma amostragem tão pequena.
 
 Após diversos testes de performance VS ganho de compressão cheguei a essa estatística que uma compressão menor que 25% não compensa o custo adicional da compressão. Uma compressão PAGE muito próxima da compressão ROW (25 pontos percentuais) também **NÃO** compensa o custo computacional, melhor manter apenas ROW. Como a compressão PAGE é muito mais onerosa computacionalmente ajusto para somente usá-la caso os ganhos seja mais expressivos (maior que 40%).
 
@@ -28,7 +49,7 @@ Nesse cenário e com o banco de dados Protheus consegui um **ganho de compressã
 
 Este script pode ser executar também após a compressão do banco para que seja reavaliada a compressão das tabelas após algum tempo de uso, e mesmo para verificar novas tabelas que tenham sido criadas depois da compressão inicial. Ele refaz as estimativas sem compressão, e com cada tipo de compressão. Depois que os dados estão atualizados basta executar o [script](https://github.com/cirilorocha/Compress-BD-SQL/blob/main/Compactar%20Banco%20de%20Dados%20(CX).sql) de compressão novamente, este irá apenas alterar o padrão de compressão das tabelas necesárias, as demais serão ignoradas.
 
-
+A execução de instancias do script de veficação em paralelo vai gerar alguns erros, devido ao fato de que a procedure do SQL, que faz as estimativas de compressão, de alguma forma compartilha dados e eventualmente ocorrem erros entre os scripts que estão em execução. Por isso também que o script não foi otimizado para execução paralela o que diminuiria bastante o tempo de execução.
 
 ## Análise dos Dados de Compressão
 

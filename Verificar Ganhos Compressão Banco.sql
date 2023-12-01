@@ -94,9 +94,9 @@ BEGIN
 		WHERE  TABLE_TYPE LIKE 'BASE%'
 			   AND UPPER(TABLE_CATALOG) = UPPER(DB_NAME())
 			   --AND OBJECT_NAME(object_id) = 'CONFIGUR_SEGUR_DOCTO' --para debug
-			   AND used_pages > 0
-		GROUP BY TABLE_SCHEMA,
-			   TABLE_NAME
+			   --Com pelo menos 12 paginas diminui bastante a quantidade total de processamento, as tabelas muito pequenas não vale a pena comprimir
+			   AND ( used_pages > 12 or data_compression_desc <> 'NONE' )
+		GROUP BY TABLE_SCHEMA,TABLE_NAME
 
 	--Contagem do total de registros, ainda não encontrei uma forma mais simples de fazer isso!
 	--PORQUE NÃO É POSSÍVEL EXECUTAR USANDO EXEC() E RETORNAR PARA UMA VARIÁVEL E O CURSOR NÃO
@@ -177,48 +177,55 @@ BEGIN
 			WHERE data_compression_desc = 'NONE'
 		END
 	--####################################################################################################	
-
-	SELECT *,
-			CASE
-				WHEN size_none_compress > size_compression_page AND dif_page_x_row > 25 AND compression_page > 40 THEN 'PAGE'	--ganho de 25% em row
-				WHEN compression_row > 25 THEN 'ROW'	--compressão geral maior que 25%
-				ELSE compress_current
-			END AS recomend
+	--Alimenta tabela base CX_COMPRESS
+	SELECT *
 	INTO CX_COMPRESS
-	FROM (
-		SELECT tnone.ObjName          AS [table_name],
-				tnone.indx_ID,
-				ROUND(SUM(tnone.size_with_requested_compression_setting)/1024,2) AS size_none_compress,
-				ROUND(SUM(trow.size_with_requested_compression_setting)/1024,2) size_compression_row,
-				ROUND(SUM(tpage.size_with_requested_compression_setting)/1024,2) AS size_compression_page,
-				ROUND((SUM(tnone.size_with_requested_compression_setting)-SUM(trow.size_with_requested_compression_setting))/1024,2) AS size_saving_row,
-				ROUND((SUM(tnone.size_with_requested_compression_setting)-SUM(tpage.size_with_requested_compression_setting))/1024,2) AS size_saving_page,
-				ROUND((1-(SUM(trow.size_with_requested_compression_setting)/SUM(tnone.size_with_requested_compression_setting)))*100,2) AS compression_row,
-				ROUND((1-(SUM(tpage.size_with_requested_compression_setting)/SUM(tnone.size_with_requested_compression_setting)))*100,2) AS compression_page,
-				ROUND((((SUM(trow.size_with_requested_compression_setting)-SUM(tpage.size_with_requested_compression_setting))/SUM(tnone.size_with_requested_compression_setting)))*100,2) AS dif_page_x_row,
-				D.data_compression_desc compress_current
-		FROM #compress_report_tb_none tnone
-		INNER JOIN #compress_report_tb_row trow
-			ON trow.schemaName = tnone.schemaName
-				AND trow.ObjName = tnone.ObjName
-				AND trow.indx_ID = tnone.indx_ID
-		INNER JOIN #compress_report_tb_page tpage
-			ON tpage.schemaName = tnone.schemaName
-				AND tpage.ObjName = tnone.ObjName
-				AND tpage.indx_ID = tnone.indx_ID
-		INNER JOIN sys.indexes A
-			ON  A.index_id = tnone.indx_ID
-				AND OBJECT_NAME(A.object_id) = tnone.ObjName
-		INNER JOIN sys.partitions D
-			ON  A.object_id = D.object_id
-				AND A.index_id = D.index_id
-		WHERE tnone.size_with_requested_compression_setting > 0 --APENAS SE TEM ESPAÇO OCUPADO
-		GROUP BY
-				tnone.ObjName,
-				tnone.indx_ID,
-				D.data_compression_desc
+	FROM (	SELECT 	tnone.ObjName AS table_name,
+					tnone.indx_ID,
+					SUM(tnone.size_with_requested_compression_setting)/1024 AS size_none_compress_MB,
+					SUM(trow.size_with_requested_compression_setting)/1024 size_compression_row_MB,
+					SUM(tpage.size_with_requested_compression_setting)/1024 AS size_compression_page_MB,
+					CONVERT(FLOAT, 0) AS size_saving_row_MB,
+					CONVERT(FLOAT, 0) AS size_saving_page_MB,
+					CONVERT(FLOAT, 0) AS compression_row,
+					CONVERT(FLOAT, 0) AS compression_page, 
+					CONVERT(FLOAT, 0) AS dif_page_x_row,
+					D.data_compression_desc compress_current,
+					'    ' AS recomend
+			FROM #compress_report_tb_none tnone
+			INNER JOIN #compress_report_tb_row trow
+				ON trow.schemaName = tnone.schemaName
+					AND trow.ObjName = tnone.ObjName
+					AND trow.indx_ID = tnone.indx_ID
+			INNER JOIN #compress_report_tb_page tpage
+				ON tpage.schemaName = tnone.schemaName
+					AND tpage.ObjName = tnone.ObjName
+					AND tpage.indx_ID = tnone.indx_ID
+			INNER JOIN sys.indexes A
+				ON  A.index_id = tnone.indx_ID
+					AND OBJECT_NAME(A.object_id) = tnone.ObjName
+			INNER JOIN sys.partitions D
+				ON  A.object_id = D.object_id
+					AND A.index_id = D.index_id
+			--WHERE tnone.size_with_requested_compression_setting > 0 --APENAS SE TEM ESPAÇO OCUPADO
+			GROUP BY tnone.ObjName,tnone.indx_ID,D.data_compression_desc
 	) Q
 	
+	--FAZ OS CALCULOS
+	UPDATE CX_COMPRESS SET	compression_row 		= (IIF(size_none_compress_MB=0,0,ROUND((1-(size_compression_row_MB/size_none_compress_MB))*100,2))),
+							compression_page 		= (IIF(size_none_compress_MB=0,0,ROUND((1-(size_compression_page_MB/size_none_compress_MB))*100,2)))
+	UPDATE CX_COMPRESS SET	dif_page_x_row 			= (compression_page-compression_row)
+	UPDATE CX_COMPRESS SET	size_none_compress_MB	= Round(size_none_compress_MB,2),	--Arredondo os valores para ficar mais legível
+							size_compression_row_MB	= Round(size_compression_row_MB,2),	--Arredondo os valores para ficar mais legível
+							size_compression_page_MB= Round(size_compression_page_MB,2),--Arredondo os valores para ficar mais legível
+							size_saving_row_MB		= Round((size_none_compress_MB-size_compression_row_MB),2),
+							size_saving_page_MB		= Round((size_none_compress_MB-size_compression_page_MB),2),
+							recomend		 		= (CASE --REGRAS DA COMPRESSÃO
+															WHEN size_none_compress_MB < 0.1 THEN 'NONE'	--Não comprimo tabelas pequenas menores que 100kb
+															WHEN size_none_compress_MB > size_compression_page_MB AND dif_page_x_row > 25 AND compression_page > 40 THEN 'PAGE'	--ganho de 25% comparado ao row e pelo menos 40% de compressão
+															WHEN compression_row > 25 THEN 'ROW'			--compressão geral maior que 25%
+															ELSE 'NONE'
+														END)
 	DROP TABLE #compress_report_tb_none;
 	DROP TABLE #compress_report_tb_row;
 	DROP TABLE #compress_report_tb_page;
@@ -229,10 +236,7 @@ BEGIN
 	--####################################################################################################
 	SELECT *
 	FROM CX_COMPRESS
-	ORDER BY
-			size_none_compress DESC,
-			table_name,
-			indx_ID
+	ORDER BY size_none_compress_MB DESC, table_name, indx_ID
 	--####################################################################################################
 	PRINT '';
 	PRINT '##### FINAL '+CONVERT(varchar(23), GETDATE() , 21 );

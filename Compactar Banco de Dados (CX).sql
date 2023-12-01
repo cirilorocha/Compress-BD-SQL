@@ -75,7 +75,7 @@ i.OBJECT_ID > 255
 		SELECT @mensagem AS MENSAGEM
 
 		INSERT INTO #Comandos_Compactacao( Tabela, Indice, Tamanho, Comando )
-		SELECT table_name,	A.name,	size_none_compress,
+		SELECT table_name,	A.name,	size_none_compress_MB,
 			   IIF(
 				   indx_ID <= 1,
 					'ALTER TABLE '+table_name+' REBUILD PARTITION = ALL WITH (DATA_COMPRESSION = ' +recomend + ')'
@@ -92,7 +92,7 @@ i.OBJECT_ID > 255
 					AND A.index_id = D.index_id
 		WHERE  1 = 1 --SO PARA FACILITAR
 			AND D.data_compression_desc <> recomend COLLATE Latin1_general_BIN
-		ORDER BY size_none_compress Desc
+		ORDER BY size_none_compress_MB Desc
 	END
 
 	DECLARE @Qt_Comandos        FLOAT = (
